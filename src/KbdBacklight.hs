@@ -1,29 +1,23 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module KbdBacklight (incBrightness, decBrightness) where
+module KbdBacklight (getMaxBrightness, getCurrBrightness, setBrightness, Modify(Inc,Dec,Set), BConst(Max,Min,Const), BVal(Val,Pct)) where
 
 import Data.Maybe
 import Data.Int
 import DBus
 import DBus.Client
 
-dbusName' :: BusName
-dbusName' = "org.freedesktop.UPower"
+dbusName' = "org.freedesktop.UPower" :: BusName
+dbusPath' = "/org/freedesktop/UPower/KbdBacklight" :: ObjectPath
+dbusInterface = "org.freedesktop.UPower.KbdBacklight" :: InterfaceName
 
-dbusPath' :: ObjectPath
-dbusPath' = "/org/freedesktop/UPower/KbdBacklight"
+mGetMaxBrightness = "GetMaxBrightness" :: MemberName
+mSetBrightness = "SetBrightness" :: MemberName
+mGetBrightness = "GetBrightness" :: MemberName
 
-dbusInterface :: InterfaceName
-dbusInterface = "org.freedesktop.UPower.KbdBacklight"
-
-mGetMaxBrightness :: MemberName
-mGetMaxBrightness = "GetMaxBrightness"
-
-mSetBrightness :: MemberName
-mSetBrightness = "SetBrightness"
-
-mGetBrightness :: MemberName
-mGetBrightness = "GetBrightness"
+data Modify = Inc BVal | Dec BVal | Set BConst
+data BConst = Max | Min | Const BVal
+data BVal = Val Int32 | Pct Int32
 
 limit' :: Int32 -> Int32 -> Int32 -> Int32
 limit' maxb minb curr
@@ -34,32 +28,37 @@ limit' maxb minb curr
 toPercentage :: Int32 -> Int32 -> Int32
 toPercentage maxv val = val * 100 `div` maxv
 
-incBrightness :: Int32 -> IO ()
-incBrightness brightness = do
-  client <- connectSystem
-  maxB <- (kbdBacklightCall client mGetMaxBrightness []) >>= toIntVal
-  currB <- (kbdBacklightCall client mGetBrightness []) >>= toIntVal
-  let newValB = (toPercentage maxB currB + brightness) *  maxB `div` 100
-  setBrightness_ client (limit' maxB 0 newValB)
-
-decBrightness :: Int32 -> IO ()
-decBrightness brightness = do
-  client <- connectSystem
-  maxB <- (kbdBacklightCall client mGetMaxBrightness []) >>= toIntVal
-  currB <- (kbdBacklightCall client mGetBrightness []) >>= toIntVal
-  let newValB = (toPercentage maxB currB - brightness) *  maxB `div` 100
-
-  setBrightness_ client (limit' maxB 0 newValB)
-
-setBrightness_ :: Client -> Int32 -> IO ()
-setBrightness_ client value = do
-  result <- kbdBacklightCall client mSetBrightness [toVariant value]
-  return ()
-
-getMaxBrightness :: IO Int32
 getMaxBrightness = do
   client <- connectSystem
-  kbdBacklightCall client mGetMaxBrightness [] >>= toIntVal
+  (kbdBacklightCall client mGetMaxBrightness []) >>= toIntVal
+
+getCurrBrightness = do
+  client <- connectSystem
+  (kbdBacklightCall client mGetBrightness []) >>= toIntVal
+
+setBrightness :: Modify -> IO ()
+setBrightness cmd = do
+  client <- connectSystem
+  (maxB, currB) <- maxCurr client
+  let newVal = case cmd of  Inc val -> modify val maxB currB (+)
+                            Dec val -> modify val maxB currB (-)
+                            Set val -> case val of
+                              Max -> maxB
+                              Min -> 0
+                              Const x -> case x of
+                                Pct y -> y * 255 `div` 100
+                                Val y -> y
+  result <- kbdBacklightCall client mSetBrightness [toVariant (limit' maxB 0 newVal)]
+  return ()
+
+modify val maxB currB op = case val of
+  Pct x -> (toPercentage maxB currB `op` x) *  maxB `div` 100
+  Val x -> currB `op` x
+
+maxCurr client = do
+  maxB <- (kbdBacklightCall client mGetMaxBrightness []) >>= toIntVal
+  currB <- (kbdBacklightCall client mGetBrightness []) >>= toIntVal
+  return (maxB, currB)
 
 toIntVal :: MethodReturn -> IO Int32
 toIntVal reply = do

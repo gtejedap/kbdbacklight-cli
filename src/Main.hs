@@ -6,24 +6,35 @@ import System.Exit
 import KbdBacklight
 import Data.Int
 
-main = getArgs >>= parse
+main = getArgs >>= parse >> exitSuccess
 
-parse [op, val] = case op of
-  "inc" -> incBrightness (read val :: Int32) >> exitSuccess
-  "dec" -> decBrightness (read val :: Int32) >> exitSuccess
-  "set" -> case val of
-    "max" -> incBrightness 100 >> exitSuccess
-    "min" -> decBrightness 100 >> exitSuccess
-    _ -> die' $ "set COMMAND not valid: " ++ val ++ "\n" ++ usage
-  _ -> die' $ "COMMAND not valid: " ++ op ++ "\n" ++ usage
-parse ["-h"] = putStrLn usage >> exitSuccess
-parse ["-v"] = putStrLn "0.1.0.0" >> exitSuccess
-parse _ = putStrLn usage >> exitSuccess
+parse ["inc", val] = setBrightness $ Inc $ parseValue val
+parse ["dec", val] = setBrightness $ Dec $ parseValue val
+parse ["set", val] = setBrightness $ Set $ case val of "max" -> Max
+                                                       "min" -> Min
+                                                       x -> Const $ parseValue val
+
+parse [x, _] = die' $ "COMMAND not found: " ++ x ++ "\n" ++ usage
+parse ["max"] = do
+  val <- getMaxBrightness
+  putStrLn $ show val
+parse ["curr"] = do
+  val <- getCurrBrightness
+  putStrLn $ show val
+parse ["-h"] = putStrLn usage
+parse ["-v"] = putStrLn "0.1.0.0"
+parse _ = putStrLn usage
+
+parseValue val = case last val of
+  '%' -> Pct  (read (init val) :: Int32)
+  _ -> Val (read val :: Int32)
 
 usage = "\
 \Usage:\n\
-\  kbdbacklight-cli (inc|dec) <%>\n\
-\  kbdbacklight-cli set (max|min)\n\
+\  kbdbacklight-cli (inc|dec) (<number>%|<number>)\n\
+\  kbdbacklight-cli set (max|min|<number>|<number>%)\n\
+\  kbdbacklight-cli max\n\
+\  kbdbacklight-cli curr\n\
 \  kbdbacklight-cli -v\n\
 \  kbdbacklight-cli -h\n\
 \Options:\n\
